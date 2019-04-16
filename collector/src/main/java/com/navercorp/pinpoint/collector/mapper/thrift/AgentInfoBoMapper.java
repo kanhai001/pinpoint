@@ -17,17 +17,23 @@
 package com.navercorp.pinpoint.collector.mapper.thrift;
 
 import com.navercorp.pinpoint.common.server.bo.AgentInfoBo;
+import com.navercorp.pinpoint.grpc.trace.PAgentInfo;
 import com.navercorp.pinpoint.thrift.dto.TAgentInfo;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
  * @author hyungil.jeong
  */
 @Component
-public class AgentInfoBoMapper implements ThriftBoMapper<AgentInfoBo, TAgentInfo> {
+public class AgentInfoBoMapper {
+    @Autowired
+    private ServerMetaDataBoMapper serverMetaDataBoMapper;
 
-    @Override
+    @Autowired
+    private JvmInfoBoMapper jvmInfoBoMapper;
+
     public AgentInfoBo map(TAgentInfo thriftObject) {
         final String hostName = thriftObject.getHostname();
         final String ip = thriftObject.getIp();
@@ -41,8 +47,9 @@ public class AgentInfoBoMapper implements ThriftBoMapper<AgentInfoBo, TAgentInfo
         final long startTime = thriftObject.getStartTimestamp();
         final long endTimeStamp = thriftObject.getEndTimestamp();
         final int endStatus = thriftObject.getEndStatus();
-        
-        AgentInfoBo.Builder builder = new AgentInfoBo.Builder();
+        final boolean container = thriftObject.isContainer();
+
+        final AgentInfoBo.Builder builder = new AgentInfoBo.Builder();
         builder.setHostName(hostName);
         builder.setIp(ip);
         builder.setPorts(ports);
@@ -55,8 +62,20 @@ public class AgentInfoBoMapper implements ThriftBoMapper<AgentInfoBo, TAgentInfo
         builder.setStartTime(startTime);
         builder.setEndTimeStamp(endTimeStamp);
         builder.setEndStatus(endStatus);
+        builder.isContainer(container);
+
+        if (thriftObject.isSetServerMetaData()) {
+            builder.setServerMetaData(this.serverMetaDataBoMapper.map(thriftObject.getServerMetaData()));
+        }
+
+        if (thriftObject.isSetJvmInfo()) {
+            builder.setJvmInfo(this.jvmInfoBoMapper.map(thriftObject.getJvmInfo()));
+        }
 
         return builder.build();
     }
 
+    public AgentInfoBo map(PAgentInfo thriftObject) {
+        return null;
+    }
 }

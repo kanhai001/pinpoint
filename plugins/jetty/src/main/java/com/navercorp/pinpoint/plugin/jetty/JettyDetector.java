@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2014 NAVER Corp.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,34 +14,31 @@
  */
 package com.navercorp.pinpoint.plugin.jetty;
 
-import com.navercorp.pinpoint.bootstrap.plugin.ApplicationTypeDetector;
-import com.navercorp.pinpoint.bootstrap.resolver.ConditionProvider;
-import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.bootstrap.resolver.condition.MainClassCondition;
+import com.navercorp.pinpoint.common.util.CollectionUtils;
 
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
-public class JettyDetector implements ApplicationTypeDetector {
+/**
+ * @author Chaein Jung
+ */
+public class JettyDetector {
 
-    private static final String DEFAULT_BOOTSTRAP_MAIN = "org.eclipse.jetty.start.Main";
+    private static final String DEFAULT_EXPECTED_MAIN_CLASS = "org.eclipse.jetty.start.Main";
 
-    private final List<String> bootstrapMains;
+    private final List<String> expectedMainClasses;
 
-    public JettyDetector(List<String> bootstrapMains) {
-        if (bootstrapMains == null || bootstrapMains.isEmpty()) {
-            this.bootstrapMains = Arrays.asList(DEFAULT_BOOTSTRAP_MAIN);
+    public JettyDetector(List<String> expectedMainClasses) {
+        if (CollectionUtils.isEmpty(expectedMainClasses)) {
+            this.expectedMainClasses = Collections.singletonList(DEFAULT_EXPECTED_MAIN_CLASS);
         } else {
-            this.bootstrapMains = bootstrapMains;
+            this.expectedMainClasses = expectedMainClasses;
         }
     }
 
-    @Override
-    public ServiceType getApplicationType() {
-        return JettyConstants.JETTY;
-    }
-
-    @Override
-    public boolean detect(ConditionProvider provider) {
-        return provider.checkMainClass(bootstrapMains);
+    public boolean detect() {
+        String bootstrapMainClass = MainClassCondition.INSTANCE.getValue();
+        return expectedMainClasses.contains(bootstrapMainClass);
     }
 }

@@ -1,20 +1,35 @@
+/*
+ * Copyright 2018 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.navercorp.pinpoint.profiler.sender.planer;
 
-import com.navercorp.pinpoint.common.Version;
-import com.navercorp.pinpoint.common.trace.ServiceType;
-import com.navercorp.pinpoint.common.util.JvmUtils;
-import com.navercorp.pinpoint.common.util.SystemPropertyKey;
-import com.navercorp.pinpoint.profiler.AgentInformation;
-import com.navercorp.pinpoint.profiler.context.DefaultTraceId;
+import com.navercorp.pinpoint.bootstrap.context.TraceId;
+import com.navercorp.pinpoint.io.request.Message;
+import com.navercorp.pinpoint.profiler.context.id.DefaultTraceRoot;
+import com.navercorp.pinpoint.profiler.context.id.DefaultTraceId;
 import com.navercorp.pinpoint.profiler.context.Span;
-import com.navercorp.pinpoint.profiler.context.SpanChunkFactory;
 import com.navercorp.pinpoint.profiler.context.SpanEvent;
+import com.navercorp.pinpoint.profiler.context.id.TraceRoot;
 import com.navercorp.pinpoint.profiler.sender.HeaderTBaseSerializerPoolFactory;
 import com.navercorp.pinpoint.profiler.sender.PartitionedByteBufferLocator;
 import com.navercorp.pinpoint.profiler.sender.SpanStreamSendData;
 import com.navercorp.pinpoint.profiler.sender.SpanStreamSendDataFactory;
 import com.navercorp.pinpoint.profiler.sender.SpanStreamSendDataSerializer;
 import com.navercorp.pinpoint.profiler.util.ObjectPool;
+import com.navercorp.pinpoint.thrift.dto.TSpan;
 import com.navercorp.pinpoint.thrift.dto.TSpanEvent;
 import com.navercorp.pinpoint.thrift.io.HeaderTBaseDeserializer;
 import com.navercorp.pinpoint.thrift.io.HeaderTBaseDeserializerFactory;
@@ -31,21 +46,18 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-public class SpanStreamSendDataPlanerTest {
+import static org.mockito.Mockito.mock;
 
-    private static SpanChunkFactory spanChunkFactory;
+public class SpanStreamSendDataPlanerTest {
 
     private static ObjectPool<HeaderTBaseSerializer> objectPool;
 
     @BeforeClass
     public static void setUp() {
-        AgentInformation agentInformation = new AgentInformation("agentId", "applicationName", 0, 0, "machineName", "127.0.0.1", ServiceType.STAND_ALONE,
-                JvmUtils.getSystemProperty(SystemPropertyKey.JAVA_VERSION), Version.VERSION);
 
         HeaderTBaseSerializerPoolFactory serializerFactory = new HeaderTBaseSerializerPoolFactory(true, 1000, true);
         objectPool = new ObjectPool<HeaderTBaseSerializer>(serializerFactory, 16);
 
-        spanChunkFactory = new SpanChunkFactory(agentInformation);
     }
 
     @Test
@@ -56,8 +68,8 @@ public class SpanStreamSendDataPlanerTest {
 
         HeaderTBaseSerializerFactory headerTBaseSerializerFactory = new HeaderTBaseSerializerFactory();
 
-        List<SpanEvent> originalSpanEventList = createSpanEventList(spanEventSize);
-        Span span = createSpan(originalSpanEventList);
+        List<TSpanEvent> originalSpanEventList = createSpanEventList(spanEventSize);
+        TSpan span = createSpan(originalSpanEventList);
 
         PartitionedByteBufferLocator partitionedByteBufferLocator = serializer.serializeSpanStream(headerTBaseSerializerFactory.createSerializer(), span);
         SpanStreamSendDataFactory factory = new SpanStreamSendDataFactory(100, 50, objectPool);
@@ -71,28 +83,27 @@ public class SpanStreamSendDataPlanerTest {
         Assert.assertEquals(spanEventSize, spanEventList2.size());
     }
 
-    private Span createSpan(List<SpanEvent> spanEventList) {
-        DefaultTraceId traceId = new DefaultTraceId("test", 0, 1);
-        Span span = new Span();
+    private TSpan createSpan(List<TSpanEvent> spanEventList) {
+        final String agentId = "agentId";
 
-        for (SpanEvent spanEvent : spanEventList) {
+
+        final TSpan span = new TSpan();
+        span.setAgentId(agentId);
+
+        for (TSpanEvent spanEvent : spanEventList) {
             span.addToSpanEventList(spanEvent);
         }
 
-        span.setAgentId("agentId");
-        span.recordTraceId(traceId);
+
         return span;
     }
 
-    private List<SpanEvent> createSpanEventList(int size) throws InterruptedException {
-        Span span = new Span();
-
-        List<SpanEvent> spanEventList = new ArrayList<SpanEvent>(size);
+    private List<TSpanEvent> createSpanEventList(int size) {
+        List<TSpanEvent> spanEventList = new ArrayList<TSpanEvent>(size);
         for (int i = 0; i < size; i++) {
-            SpanEvent spanEvent = new SpanEvent(span);
-            spanEvent.markStartTime();
-            Thread.sleep(1);
-            spanEvent.markAfterTime();
+            TSpanEvent spanEvent = new TSpanEvent();
+            spanEvent.setStartElapsed(1);
+            spanEvent.setEndElapsed(2);
 
             spanEventList.add(spanEvent);
         }
@@ -113,9 +124,7 @@ public class SpanStreamSendDataPlanerTest {
 
             List<TSpanEvent> result = deserialize(relatedBuffer);
 
-            for (TSpanEvent spanEvent : result) {
-                spanEventList.add(spanEvent);
-            }
+            spanEventList.addAll(result);
         }
 
         return spanEventList;
@@ -157,14 +166,12 @@ public class SpanStreamSendDataPlanerTest {
             bb.get(component);
 
             HeaderTBaseDeserializer deserialize = new HeaderTBaseDeserializerFactory().createDeserializer();
-            List<TBase<?, ?>> value = deserialize.deserializeList(component);
+            List<Message<TBase<?, ?>>> value = deserialize.deserializeList(component);
 
-            for (int j = 0; j < value.size(); j++) {
-                TBase tbase = value.get(j);
-
+            for (Message<TBase<?, ?>> request : value) {
+                TBase<?, ?> tbase = request.getData();
                 if (tbase instanceof TSpanEvent) {
                     eventList.add((TSpanEvent) tbase);
-                } else {
                 }
             }
 

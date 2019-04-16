@@ -1,11 +1,11 @@
-/**
+/*
  * Copyright 2014 NAVER Corp.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,27 +14,24 @@
  */
 package com.navercorp.pinpoint.bootstrap;
 
-import java.lang.instrument.Instrumentation;
-import java.net.URL;
-import java.util.List;
-import java.util.Map;
-
 import com.navercorp.pinpoint.ProductInfo;
+import com.navercorp.pinpoint.bootstrap.agentdir.AgentDirectory;
+import com.navercorp.pinpoint.bootstrap.classloader.PinpointClassLoaderFactory;
+import com.navercorp.pinpoint.bootstrap.classloader.ProfilerLibs;
 import com.navercorp.pinpoint.bootstrap.config.DefaultProfilerConfig;
 import com.navercorp.pinpoint.bootstrap.config.ProfilerConfig;
 import com.navercorp.pinpoint.common.Version;
-import com.navercorp.pinpoint.common.service.AnnotationKeyRegistryService;
-import com.navercorp.pinpoint.common.service.DefaultAnnotationKeyRegistryService;
-import com.navercorp.pinpoint.common.service.DefaultServiceTypeRegistryService;
-import com.navercorp.pinpoint.common.service.DefaultTraceMetadataLoaderService;
-import com.navercorp.pinpoint.common.service.ServiceTypeRegistryService;
-import com.navercorp.pinpoint.common.service.TraceMetadataLoaderService;
 import com.navercorp.pinpoint.common.util.PinpointThreadFactory;
 import com.navercorp.pinpoint.common.util.SimpleProperty;
 import com.navercorp.pinpoint.common.util.SystemProperty;
-import com.navercorp.pinpoint.common.util.logger.CommonLoggerFactory;
-import com.navercorp.pinpoint.common.util.logger.StdoutCommonLoggerFactory;
-import com.navercorp.pinpoint.exception.PinpointException;
+
+import java.lang.instrument.Instrumentation;
+import java.net.URL;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * @author Jongho Moon
@@ -44,36 +41,47 @@ class PinpointStarter {
 
     private final BootLogger logger = BootLogger.getLogger(PinpointStarter.class.getName());
 
+    public static final String AGENT_TYPE = "AGENT_TYPE";
+
+    public static final String DEFAULT_AGENT = "DEFAULT_AGENT";
     public static final String BOOT_CLASS = "com.navercorp.pinpoint.profiler.DefaultAgent";
+
+    public static final String PLUGIN_TEST_AGENT = "PLUGIN_TEST";
     public static final String PLUGIN_TEST_BOOT_CLASS = "com.navercorp.pinpoint.test.PluginTestAgent";
 
     private SimpleProperty systemProperty = SystemProperty.INSTANCE;
 
     private final Map<String, String> agentArgs;
-    private final BootstrapJarFile bootstrapJarFile;
-    private final ClassPathResolver classPathResolver;
+    private final AgentDirectory agentDirectory;
     private final Instrumentation instrumentation;
+    private final ClassLoader parentClassLoader;
+    private final ModuleBootLoader moduleBootLoader;
 
 
-    public PinpointStarter(Map<String, String> agentArgs, BootstrapJarFile bootstrapJarFile, ClassPathResolver classPathResolver, Instrumentation instrumentation) {
+    public PinpointStarter(ClassLoader parentClassLoader, Map<String, String> agentArgs,
+                           AgentDirectory agentDirectory,
+                           Instrumentation instrumentation, ModuleBootLoader moduleBootLoader) {
+        //        null == BootstrapClassLoader
+//        if (bootstrapClassLoader == null) {
+//            throw new NullPointerException("bootstrapClassLoader must not be null");
+//        }
         if (agentArgs == null) {
             throw new NullPointerException("agentArgs must not be null");
         }
-        if (bootstrapJarFile == null) {
-            throw new NullPointerException("bootstrapJarFile must not be null");
-        }
-        if (classPathResolver == null) {
-            throw new NullPointerException("classPathResolver must not be null");
+        if (agentDirectory == null) {
+            throw new NullPointerException("agentDirectory must not be null");
         }
         if (instrumentation == null) {
             throw new NullPointerException("instrumentation must not be null");
         }
         this.agentArgs = agentArgs;
-        this.bootstrapJarFile = bootstrapJarFile;
-        this.classPathResolver = classPathResolver;
+        this.parentClassLoader = parentClassLoader;
+        this.agentDirectory = agentDirectory;
         this.instrumentation = instrumentation;
+        this.moduleBootLoader = moduleBootLoader;
 
     }
+
 
     boolean start() {
         final IdValidator idValidator = new IdValidator();
@@ -85,22 +93,18 @@ class PinpointStarter {
         if (applicationName == null) {
             return false;
         }
-        
-        URL[] pluginJars = classPathResolver.resolvePlugins();
 
-        // TODO using PLogger instead of CommonLogger
-        CommonLoggerFactory loggerFactory = StdoutCommonLoggerFactory.INSTANCE;
-        TraceMetadataLoaderService typeLoaderService = new DefaultTraceMetadataLoaderService(pluginJars, loggerFactory);
-        ServiceTypeRegistryService serviceTypeRegistryService  = new DefaultServiceTypeRegistryService(typeLoaderService, loggerFactory);
-        AnnotationKeyRegistryService annotationKeyRegistryService = new DefaultAnnotationKeyRegistryService(typeLoaderService, loggerFactory);
+        final ContainerResolver containerResolver = new ContainerResolver();
+        final boolean isContainer = containerResolver.isContainer();
 
-        String configPath = getConfigPath(classPathResolver);
+        List<String> pluginJars = agentDirectory.getPlugins();
+        String configPath = getConfigPath(agentDirectory);
         if (configPath == null) {
             return false;
         }
 
         // set the path of log file as a system property
-        saveLogFilePath(classPathResolver);
+        saveLogFilePath(agentDirectory);
 
         savePinpointVersion();
 
@@ -109,17 +113,21 @@ class PinpointStarter {
             ProfilerConfig profilerConfig = DefaultProfilerConfig.load(configPath);
 
             // this is the library list that must be loaded
-            List<URL> libUrlList = resolveLib(classPathResolver);
-            AgentClassLoader agentClassLoader = new AgentClassLoader(libUrlList.toArray(new URL[libUrlList.size()]));
+            final URL[] urls = resolveLib(agentDirectory);
+            final ClassLoader agentClassLoader = createClassLoader("pinpoint.agent", urls, parentClassLoader);
+            if (moduleBootLoader != null) {
+                this.logger.info("defineAgentModule");
+                moduleBootLoader.defineAgentModule(agentClassLoader, urls);
+            }
+
             final String bootClass = getBootClass();
-            agentClassLoader.setBootClass(bootClass);
+            AgentBootLoader agentBootLoader = new AgentBootLoader(bootClass, urls, agentClassLoader);
             logger.info("pinpoint agent [" + bootClass + "] starting...");
 
-
-            AgentOption option = createAgentOption(agentId, applicationName, profilerConfig, instrumentation, pluginJars, bootstrapJarFile, serviceTypeRegistryService, annotationKeyRegistryService);
-            Agent pinpointAgent = agentClassLoader.boot(option);
+            AgentOption option = createAgentOption(agentId, applicationName, isContainer, profilerConfig, instrumentation, pluginJars, agentDirectory);
+            Agent pinpointAgent = agentBootLoader.boot(option);
             pinpointAgent.start();
-            registerShutdownHook(pinpointAgent);
+
             logger.info("pinpoint agent started normally.");
         } catch (Exception e) {
             // unexpected exception that did not be checked above
@@ -129,31 +137,42 @@ class PinpointStarter {
         return true;
     }
 
+    private ClassLoader createClassLoader(final String name, final URL[] urls, final ClassLoader parentClassLoader) {
+        if (System.getSecurityManager() != null) {
+            return AccessController.doPrivileged(new PrivilegedAction<ClassLoader>() {
+                public ClassLoader run() {
+                    return PinpointClassLoaderFactory.createClassLoader(name, urls, parentClassLoader, ProfilerLibs.PINPOINT_PROFILER_CLASS);
+                }
+            });
+        } else {
+            return PinpointClassLoaderFactory.createClassLoader(name, urls, parentClassLoader, ProfilerLibs.PINPOINT_PROFILER_CLASS);
+        }
+    }
+
     private String getBootClass() {
         final String agentType = getAgentType().toUpperCase();
-        if ("PLUGIN_TEST".equals(agentType)) {
+        if (PLUGIN_TEST_AGENT.equals(agentType)) {
             return PLUGIN_TEST_BOOT_CLASS;
         }
         return BOOT_CLASS;
     }
 
     private String getAgentType() {
-        String agentType = agentArgs.get("AGENT_TYPE");
+        String agentType = agentArgs.get(AGENT_TYPE);
         if (agentType == null) {
-            return "DEFAULT_AGENT";
+            return DEFAULT_AGENT;
         }
         return agentType;
 
     }
 
-    private AgentOption createAgentOption(String agentId, String applicationName, ProfilerConfig profilerConfig,
+    private AgentOption createAgentOption(String agentId, String applicationName, boolean isContainer,
+                                          ProfilerConfig profilerConfig,
                                           Instrumentation instrumentation,
-                                          URL[] pluginJars,
-                                          BootstrapJarFile bootstrapJarFile,
-                                          ServiceTypeRegistryService serviceTypeRegistryService,
-                                          AnnotationKeyRegistryService annotationKeyRegistryService) {
-        List<String> bootstrapJarPaths = bootstrapJarFile.getJarNameList();
-        return new DefaultAgentOption(instrumentation, agentId, applicationName, profilerConfig, pluginJars, bootstrapJarPaths, serviceTypeRegistryService, annotationKeyRegistryService);
+                                          List<String> pluginJars,
+                                          AgentDirectory agentDirectory) {
+        List<String> bootstrapJarPaths = agentDirectory.getBootDir().toList();
+        return new DefaultAgentOption(instrumentation, agentId, applicationName, isContainer, profilerConfig, pluginJars, bootstrapJarPaths);
     }
 
     // for test
@@ -161,21 +180,8 @@ class PinpointStarter {
         this.systemProperty = systemProperty;
     }
 
-    private void registerShutdownHook(final Agent pinpointAgent) {
-        final Runnable stop = new Runnable() {
-            @Override
-            public void run() {
-                pinpointAgent.stop();
-            }
-        };
-        PinpointThreadFactory pinpointThreadFactory = new PinpointThreadFactory("Pinpoint-shutdown-hook");
-        Thread thread = pinpointThreadFactory.newThread(stop);
-        Runtime.getRuntime().addShutdownHook(thread);
-    }
-
-
-    private void saveLogFilePath(ClassPathResolver classPathResolver) {
-        String agentLogFilePath = classPathResolver.getAgentLogFilePath();
+    private void saveLogFilePath(AgentDirectory agentDirectory) {
+        String agentLogFilePath = agentDirectory.getAgentLogFilePath();
         logger.info("logPath:" + agentLogFilePath);
 
         systemProperty.setProperty(ProductInfo.NAME + ".log", agentLogFilePath);
@@ -186,7 +192,7 @@ class PinpointStarter {
         systemProperty.setProperty(ProductInfo.NAME + ".version", Version.VERSION);
     }
 
-    private String getConfigPath(ClassPathResolver classPathResolver) {
+    private String getConfigPath(AgentDirectory agentDirectory) {
         final String configName = ProductInfo.NAME + ".config";
         String pinpointConfigFormSystemProperty = systemProperty.getProperty(configName);
         if (pinpointConfigFormSystemProperty != null) {
@@ -194,9 +200,9 @@ class PinpointStarter {
             return pinpointConfigFormSystemProperty;
         }
 
-        String classPathAgentConfigPath = classPathResolver.getAgentConfigPath();
+        String classPathAgentConfigPath = agentDirectory.getAgentConfigPath();
         if (classPathAgentConfigPath != null) {
-            logger.info("classpath " + configName +  " found. " + classPathAgentConfigPath);
+            logger.info("classpath " + configName + " found. " + classPathAgentConfigPath);
             return classPathAgentConfigPath;
         }
 
@@ -205,11 +211,11 @@ class PinpointStarter {
     }
 
 
-    private List<URL> resolveLib(ClassPathResolver classPathResolver)  {
+    private URL[] resolveLib(AgentDirectory classPathResolver) {
         // this method may handle only absolute path,  need to handle relative path (./..agentlib/lib)
         String agentJarFullPath = classPathResolver.getAgentJarFullPath();
         String agentLibPath = classPathResolver.getAgentLibPath();
-        List<URL> urlList = classPathResolver.resolveLib();
+        List<URL> urlList = resolveLib(classPathResolver.getLibs());
         String agentConfigPath = classPathResolver.getAgentConfigPath();
 
         if (logger.isInfoEnabled()) {
@@ -220,8 +226,24 @@ class PinpointStarter {
             }
             logger.info("agent config:" + agentConfigPath);
         }
+        return urlList.toArray(new URL[0]);
+    }
 
-        return urlList;
+    private List<URL> resolveLib(List<URL> urlList) {
+        if (DEFAULT_AGENT.equalsIgnoreCase(getAgentType())) {
+            final List<URL> releaseLib = new ArrayList<URL>(urlList.size());
+            for (URL url : urlList) {
+                //
+                if (!url.toExternalForm().contains("pinpoint-profiler-test")) {
+                    releaseLib.add(url);
+                }
+            }
+            return releaseLib;
+        } else {
+            logger.info("load " + PLUGIN_TEST_AGENT + " lib");
+            // plugin test
+            return urlList;
+        }
     }
 
 }

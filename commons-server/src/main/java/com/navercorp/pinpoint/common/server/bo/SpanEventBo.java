@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2018 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -33,7 +33,7 @@ public class SpanEventBo implements Event {
     private int startElapsed;
     private int endElapsed;
 
-    private String rpc;
+//    private String rpc;
     private short serviceType;
 
     private String destinationId;
@@ -52,8 +52,11 @@ public class SpanEventBo implements Event {
     // should get exceptionClass from dao
     private String exceptionClass;
 
-    private int asyncId = -1;
     private int nextAsyncId = -1;
+
+    @Deprecated
+    private int asyncId = -1;
+    @Deprecated
     private short asyncSequence = -1;
     
     public SpanEventBo() {
@@ -92,12 +95,14 @@ public class SpanEventBo implements Event {
         this.endElapsed = endElapsed;
     }
 
+    @Deprecated
     public String getRpc() {
-        return rpc;
+        return null;
     }
 
+    @Deprecated
     public void setRpc(String rpc) {
-        this.rpc = rpc;
+//        this.rpc = rpc;
     }
 
     public short getServiceType() {
@@ -192,14 +197,6 @@ public class SpanEventBo implements Event {
         this.exceptionClass = exceptionClass;
     }
 
-    public int getAsyncId() {
-        return asyncId;
-    }
-
-    public void setAsyncId(int asyncId) {
-        this.asyncId = asyncId;
-    }
-
     public int getNextAsyncId() {
         return nextAsyncId;
     }
@@ -207,11 +204,24 @@ public class SpanEventBo implements Event {
     public void setNextAsyncId(int nextAsyncId) {
         this.nextAsyncId = nextAsyncId;
     }
-    
+
+
+    @Deprecated
+    public int getAsyncId() {
+        return asyncId;
+    }
+
+    @Deprecated
+    public void setAsyncId(int asyncId) {
+        this.asyncId = asyncId;
+    }
+
+    @Deprecated
     public short getAsyncSequence() {
         return asyncSequence;
     }
 
+    @Deprecated
     public void setAsyncSequence(short asyncSequence) {
         this.asyncSequence = asyncSequence;
     }
@@ -228,8 +238,6 @@ public class SpanEventBo implements Event {
         builder.append(startElapsed);
         builder.append(", endElapsed=");
         builder.append(endElapsed);
-        builder.append(", rpc=");
-        builder.append(rpc);
         builder.append(", serviceType=");
         builder.append(serviceType);
         builder.append(", destinationId=");

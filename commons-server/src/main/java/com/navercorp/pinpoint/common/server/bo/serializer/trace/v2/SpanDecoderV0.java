@@ -3,14 +3,15 @@ package com.navercorp.pinpoint.common.server.bo.serializer.trace.v2;
 import com.navercorp.pinpoint.common.buffer.Buffer;
 import com.navercorp.pinpoint.common.server.bo.AnnotationBo;
 import com.navercorp.pinpoint.common.server.bo.BasicSpan;
+import com.navercorp.pinpoint.common.server.bo.LocalAsyncIdBo;
 import com.navercorp.pinpoint.common.server.bo.SpanBo;
 import com.navercorp.pinpoint.common.server.bo.SpanChunkBo;
 import com.navercorp.pinpoint.common.server.bo.SpanEventBo;
 import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.bitfield.SpanBitFiled;
 import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.bitfield.SpanEventBitField;
 import com.navercorp.pinpoint.common.server.bo.serializer.trace.v2.bitfield.SpanEventQualifierBitField;
-import com.navercorp.pinpoint.common.util.AnnotationTranscoder;
 import com.navercorp.pinpoint.common.util.TransactionId;
+import com.navercorp.pinpoint.common.server.bo.AnnotationTranscoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -329,7 +330,7 @@ public class SpanDecoderV0 implements SpanDecoder {
 
     private List<AnnotationBo> readAnnotationList(Buffer buffer, SpanDecodingContext decodingContext) {
         int annotationListSize = buffer.readVInt();
-        List<AnnotationBo> annotationBoList = new ArrayList<>(annotationListSize);
+        List<AnnotationBo> annotationBoList = new ArrayList<AnnotationBo>(annotationListSize);
 
 //        AnnotationBo prev = decodingContext.getPrevFirstAnnotationBo();
         AnnotationBo prev = null;
@@ -350,30 +351,24 @@ public class SpanDecoderV0 implements SpanDecoder {
     }
 
     private AnnotationBo readFirstAnnotationBo(Buffer buffer) {
-        AnnotationBo current;
-        current = new AnnotationBo();
-        current.setKey(buffer.readSVInt());
-
+        final int key = buffer.readSVInt();
         byte valueType = buffer.readByte();
         byte[] valueBytes = buffer.readPrefixedBytes();
         Object value = transcoder.decode(valueType, valueBytes);
 
-        current.setValue(value);
+        AnnotationBo current = new AnnotationBo(key, value);
         return current;
     }
 
     private AnnotationBo readDeltaAnnotationBo(Buffer buffer, AnnotationBo prev) {
-        AnnotationBo annotation = new AnnotationBo();
-
         final int prevKey = prev.getKey();
-
-        annotation.setKey(buffer.readSVInt() + prevKey);
+        int key = buffer.readSVInt() + prevKey;
 
         byte valueType = buffer.readByte();
         byte[] valueBytes = buffer.readPrefixedBytes();
         Object value = transcoder.decode(valueType, valueBytes);
 
-        annotation.setValue(value);
+        AnnotationBo annotation = new AnnotationBo(key, value);
         return annotation;
     }
 
@@ -395,24 +390,29 @@ public class SpanDecoderV0 implements SpanDecoder {
         if (firstSpanEventSequence == -1) {
 //            buffer.readByte();
             // spanEvent not exist ??
-            logger.info("firstSpanEvent is null. bug!!!!");
-            return null;
+            logger.warn("firstSpanEvent is null. bug!!!! firstSpanEventSequence:{}", firstSpanEventSequence);
+            throw new IllegalStateException("firstSpanEvent is null");
         } else {
-            return readQualifierFirstSpanEvent(buffer);
+            final LocalAsyncIdBo localAsyncIdBo = readQualifierLocalAsyncIdBo(buffer);
+            if (localAsyncIdBo != null) {
+                if (basicSpan instanceof SpanChunkBo) {
+                    ((SpanChunkBo) basicSpan).setLocalAsyncId(localAsyncIdBo);
+                } else {
+                    throw new IllegalStateException("decode error. unexpected span:" + basicSpan);
+                }
+            }
+            return new SpanEventBo();
         }
     }
 
-    private SpanEventBo readQualifierFirstSpanEvent(Buffer buffer) {
-        final SpanEventBo firstSpanEvent = new SpanEventBo();
-
+    private LocalAsyncIdBo readQualifierLocalAsyncIdBo(Buffer buffer) {
         final byte bitField = buffer.readByte();
         if (SpanEventQualifierBitField.isSetAsync(bitField)) {
-            int asyncId = buffer.readInt();
-            int asyncSequence = buffer.readVInt();
-            firstSpanEvent.setAsyncId(asyncId);
-            firstSpanEvent.setAsyncSequence((short) asyncSequence);
+            final int asyncId = buffer.readInt();
+            final int asyncSequence = buffer.readVInt();
+            return new LocalAsyncIdBo(asyncId, asyncSequence);
         }
-        return firstSpanEvent;
+        return null;
     }
 
     @Override

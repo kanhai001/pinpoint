@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2018 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -108,7 +108,7 @@ public class HbaseTemplate2 extends HbaseAccessor implements HbaseOperations2, I
         Configuration configuration = getConfiguration();
         Assert.notNull(configuration, "configuration is required");
         Assert.notNull(getTableFactory(), "tableFactory is required");
-        PinpointThreadFactory parallelScannerThreadFactory = new PinpointThreadFactory("Pinpoint-parallel-scanner");
+        PinpointThreadFactory parallelScannerThreadFactory = new PinpointThreadFactory("Pinpoint-parallel-scanner", true);
         if (this.maxThreadsPerParallelScan <= 1) {
             this.enableParallelScan = false;
             this.executor = Executors.newSingleThreadExecutor(parallelScannerThreadFactory);
@@ -145,7 +145,10 @@ public class HbaseTemplate2 extends HbaseAccessor implements HbaseOperations2, I
 
         while (true) {
             Long currentPutOpsCount = asyncOperation.getCurrentOpsCount();
-            logger.warn("count " + currentPutOpsCount);
+            if (logger.isWarnEnabled()) {
+                logger.warn("count {}", currentPutOpsCount);
+            }
+
             if (currentPutOpsCount <= 0L) {
                 return true;
             }

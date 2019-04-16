@@ -18,13 +18,14 @@ package com.navercorp.pinpoint.bootstrap.config;
 
 import com.navercorp.pinpoint.bootstrap.util.NumberUtils;
 import com.navercorp.pinpoint.bootstrap.util.spring.PropertyPlaceholderHelper;
+import com.navercorp.pinpoint.common.annotations.VisibleForTesting;
+import com.navercorp.pinpoint.common.util.StringUtils;
 import com.navercorp.pinpoint.common.util.logger.CommonLogger;
 import com.navercorp.pinpoint.common.util.PropertyUtils;
 import com.navercorp.pinpoint.common.util.logger.StdoutCommonLoggerFactory;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -38,14 +39,15 @@ import java.util.regex.Pattern;
  */
 public class DefaultProfilerConfig implements ProfilerConfig {
     private static final CommonLogger logger = StdoutCommonLoggerFactory.INSTANCE.getLogger(DefaultProfilerConfig.class.getName());
-    private static final String DEFAULT_IP = "127.0.0.1";
+
 
     private final Properties properties;
-    private final PropertyPlaceholderHelper propertyPlaceholderHelper = new PropertyPlaceholderHelper("${", "}");
 
-    @Deprecated
-    public static final String INSTRUMENT_ENGINE_JAVASSIST = "JAVASSIST";
     public static final String INSTRUMENT_ENGINE_ASM = "ASM";
+    private static final String DEFAULT_TRANSPORT_MODULE = "THRIFT";
+
+    public static final int DEFAULT_AGENT_STAT_COLLECTION_INTERVAL_MS = 5 * 1000;
+    public static final int DEFAULT_NUM_AGENT_STAT_BATCH_SEND = 6;
 
     public interface ValueResolver {
         String resolve(String value, Properties properties);
@@ -60,12 +62,13 @@ public class DefaultProfilerConfig implements ProfilerConfig {
         }
     }
 
-    private class PlaceHolderResolver implements ValueResolver {
+    static class PlaceHolderResolver implements ValueResolver {
         @Override
         public String resolve(String value, Properties properties) {
             if (value == null) {
                 return null;
             }
+            PropertyPlaceholderHelper propertyPlaceholderHelper = new PropertyPlaceholderHelper("${", "}");
             return propertyPlaceholderHelper.replacePlaceholders(value, properties);
         }
     }
@@ -89,34 +92,28 @@ public class DefaultProfilerConfig implements ProfilerConfig {
 
     private boolean profileEnable = false;
 
-    private String profileInstrumentEngine = "JAVASSIST";
+    private String profileInstrumentEngine = INSTRUMENT_ENGINE_ASM;
+    private boolean instrumentMatcherEnable = true;
+    private InstrumentMatcherCacheConfig instrumentMatcherCacheConfig = new InstrumentMatcherCacheConfig();
 
-    private int interceptorRegistrySize = 1024*8;
+    private int interceptorRegistrySize = 1024 * 8;
 
-    private String collectorSpanServerIp = DEFAULT_IP;
-    private int collectorSpanServerPort = 9996;
+    @VisibleForTesting
+    private boolean staticResourceCleanup = false;
 
-    private String collectorStatServerIp = DEFAULT_IP;
-    private int collectorStatServerPort = 9995;
+    private String transportModule = DEFAULT_TRANSPORT_MODULE;
 
-    private String collectorTcpServerIp = DEFAULT_IP;
-    private int collectorTcpServerPort = 9994;
+    private ThriftTransportConfig thriftTransportConfig;
+    private GrpcTransportConfig grpcTransportConfig;
 
-    private int spanDataSenderWriteQueueSize = 1024 * 5;
-    private int spanDataSenderSocketSendBufferSize = 1024 * 64 * 16;
-    private int spanDataSenderSocketTimeout = 1000 * 3;
-    private int spanDataSenderChunkSize = 1024 * 16;
-    private String spanDataSenderSocketType = "OIO";
-
-    private int statDataSenderWriteQueueSize = 1024 * 5;
-    private int statDataSenderSocketSendBufferSize = 1024 * 64 * 16;
-    private int statDataSenderSocketTimeout = 1000 * 3;
-    private int statDataSenderChunkSize = 1024 * 16;
-    private String statDataSenderSocketType = "OIO";
-
-    private boolean tcpDataSenderCommandAcceptEnable = false;
 
     private boolean traceAgentActiveThread = true;
+
+    private boolean traceAgentDataSource = false;
+    private int dataSourceTraceLimitSize = 20;
+
+    private boolean deadlockMonitorEnable = true;
+    private long deadlockMonitorInterval = 60000L;
 
     private int callStackMaxDepth = 512;
 
@@ -132,9 +129,11 @@ public class DefaultProfilerConfig implements ProfilerConfig {
     private boolean ioBufferingEnable;
     private int ioBufferingBufferSize;
 
-    private int profileJvmCollectInterval;
     private String profileJvmVendorName;
-    private boolean profilerJvmCollectDetailedMetrics;
+    private String profileOsName;
+    private int profileJvmStatCollectIntervalMs = DEFAULT_AGENT_STAT_COLLECTION_INTERVAL_MS;
+    private int profileJvmStatBatchSendCount = DEFAULT_NUM_AGENT_STAT_BATCH_SEND;
+    private boolean profilerJvmStatCollectDetailedMetrics;
 
     private Filter<String> profilableClassFilter = new SkipFilter<String>();
 
@@ -142,13 +141,25 @@ public class DefaultProfilerConfig implements ProfilerConfig {
     private long agentInfoSendRetryInterval = DEFAULT_AGENT_INFO_SEND_RETRY_INTERVAL;
 
     private String applicationServerType;
+    @Deprecated // As of 1.9.0, set application type in plugins
     private List<String> applicationTypeDetectOrder = Collections.emptyList();
+    private List<String> pluginLoadOrder = Collections.emptyList();
     private List<String> disabledPlugins = Collections.emptyList();
 
     private boolean propagateInterceptorException = false;
+    private boolean supportLambdaExpressions = true;
+
+    private boolean proxyHttpHeaderEnable = true;
+
+    private HttpStatusCodeErrors httpStatusCodeErrors = new HttpStatusCodeErrors();
+
+    private String injectionModuleFactoryClazzName = null;
+    private String applicationNamespace = "";
 
     public DefaultProfilerConfig() {
         this.properties = new Properties();
+        this.thriftTransportConfig = new DefaultThriftTransportConfig();
+        this.grpcTransportConfig = new GrpcTransportConfig();
     }
 
     public DefaultProfilerConfig(Properties properties) {
@@ -160,73 +171,277 @@ public class DefaultProfilerConfig implements ProfilerConfig {
     }
 
     @Override
+    public String getTransportModule() {
+        return transportModule;
+    }
+
+    @Override
     public int getInterceptorRegistrySize() {
         return interceptorRegistrySize;
     }
 
     @Override
-    public String getCollectorSpanServerIp() {
-        return collectorSpanServerIp;
+    public ThriftTransportConfig getThriftTransportConfig() {
+//        if (thriftTransportConfig == null){
+//          // TODO ?
+//        }
+        return thriftTransportConfig;
     }
 
+    public GrpcTransportConfig getGrpcTransportConfig() {
+        return grpcTransportConfig;
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public String getCollectorSpanServerIp() {
+        return getThriftTransportConfig().getCollectorSpanServerIp();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public int getCollectorSpanServerPort() {
-        return collectorSpanServerPort;
+        return getThriftTransportConfig().getCollectorSpanServerPort();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public String getCollectorStatServerIp() {
-        return collectorStatServerIp;
+        return getThriftTransportConfig().getCollectorStatServerIp();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public int getCollectorStatServerPort() {
-        return collectorStatServerPort;
+        return getThriftTransportConfig().getCollectorStatServerPort();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public String getCollectorTcpServerIp() {
-        return collectorTcpServerIp;
+        return getThriftTransportConfig().getCollectorTcpServerIp();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public int getCollectorTcpServerPort() {
-        return collectorTcpServerPort;
+        return getThriftTransportConfig().getCollectorTcpServerPort();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public int getStatDataSenderWriteQueueSize() {
-        return statDataSenderWriteQueueSize;
+        return getThriftTransportConfig().getStatDataSenderWriteQueueSize();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public int getStatDataSenderSocketSendBufferSize() {
-        return statDataSenderSocketSendBufferSize;
+        return getThriftTransportConfig().getStatDataSenderSocketSendBufferSize();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public int getStatDataSenderSocketTimeout() {
-        return statDataSenderSocketTimeout;
+        return getThriftTransportConfig().getStatDataSenderSocketTimeout();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public String getStatDataSenderSocketType() {
-        return statDataSenderSocketType;
+        return getThriftTransportConfig().getStatDataSenderSocketType();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public String getStatDataSenderTransportType() {
+        return getThriftTransportConfig().getStatDataSenderTransportType();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public int getSpanDataSenderWriteQueueSize() {
-        return spanDataSenderWriteQueueSize;
+        return getThriftTransportConfig().getSpanDataSenderWriteQueueSize();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public int getSpanDataSenderSocketSendBufferSize() {
-        return spanDataSenderSocketSendBufferSize;
+        return getThriftTransportConfig().getSpanDataSenderSocketSendBufferSize();
     }
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     @Override
     public boolean isTcpDataSenderCommandAcceptEnable() {
-        return tcpDataSenderCommandAcceptEnable;
+        return getThriftTransportConfig().isTcpDataSenderCommandAcceptEnable();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public boolean isTcpDataSenderCommandActiveThreadEnable() {
+        return getThriftTransportConfig().isTcpDataSenderCommandActiveThreadEnable();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public boolean isTcpDataSenderCommandActiveThreadCountEnable() {
+        return getThriftTransportConfig().isTcpDataSenderCommandActiveThreadCountEnable();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public boolean isTcpDataSenderCommandActiveThreadDumpEnable() {
+        return getThriftTransportConfig().isTcpDataSenderCommandActiveThreadDumpEnable();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public boolean isTcpDataSenderCommandActiveThreadLightDumpEnable() {
+        return getThriftTransportConfig().isTcpDataSenderCommandActiveThreadLightDumpEnable();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public long getTcpDataSenderPinpointClientWriteTimeout() {
+        return getThriftTransportConfig().getTcpDataSenderPinpointClientWriteTimeout();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public long getTcpDataSenderPinpointClientRequestTimeout() {
+        return getThriftTransportConfig().getTcpDataSenderPinpointClientRequestTimeout();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public long getTcpDataSenderPinpointClientReconnectInterval() {
+        return getThriftTransportConfig().getTcpDataSenderPinpointClientReconnectInterval();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public long getTcpDataSenderPinpointClientPingInterval() {
+        return getThriftTransportConfig().getTcpDataSenderPinpointClientPingInterval();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public long getTcpDataSenderPinpointClientHandshakeInterval() {
+        return getThriftTransportConfig().getTcpDataSenderPinpointClientHandshakeInterval();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public int getSpanDataSenderSocketTimeout() {
+        return getThriftTransportConfig().getSpanDataSenderSocketTimeout();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public String getSpanDataSenderSocketType() {
+        return getThriftTransportConfig().getSpanDataSenderSocketType();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public String getSpanDataSenderTransportType() {
+        return getThriftTransportConfig().getSpanDataSenderTransportType();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public int getSpanDataSenderChunkSize() {
+        return getThriftTransportConfig().getSpanDataSenderChunkSize();
+    }
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    @Override
+    public int getStatDataSenderChunkSize() {
+        return getThriftTransportConfig().getStatDataSenderChunkSize();
     }
 
     @Override
@@ -235,23 +450,23 @@ public class DefaultProfilerConfig implements ProfilerConfig {
     }
 
     @Override
-    public int getSpanDataSenderSocketTimeout() {
-        return spanDataSenderSocketTimeout;
+    public boolean isTraceAgentDataSource() {
+        return traceAgentDataSource;
     }
 
     @Override
-    public String getSpanDataSenderSocketType() {
-        return spanDataSenderSocketType;
+    public int getDataSourceTraceLimitSize() {
+        return dataSourceTraceLimitSize;
     }
 
     @Override
-    public int getSpanDataSenderChunkSize() {
-        return spanDataSenderChunkSize;
+    public boolean isDeadlockMonitorEnable() {
+        return deadlockMonitorEnable;
     }
 
     @Override
-    public int getStatDataSenderChunkSize() {
-        return statDataSenderChunkSize;
+    public long getDeadlockMonitorInterval() {
+        return deadlockMonitorInterval;
     }
 
     @Override
@@ -296,22 +511,28 @@ public class DefaultProfilerConfig implements ProfilerConfig {
     }
 
     @Override
-    public int getProfileJvmCollectInterval() {
-        return profileJvmCollectInterval;
-    }
-
-    @Override
     public String getProfilerJvmVendorName() {
         return profileJvmVendorName;
     }
 
     @Override
-    public boolean isProfilerJvmCollectDetailedMetrics() {
-        return profilerJvmCollectDetailedMetrics;
+    public String getProfilerOSName() {
+        return profileOsName;
     }
 
-    public void setProfilerJvmCollectDetailedMetrics(boolean profilerJvmCollectDetailedMetrics) {
-        this.profilerJvmCollectDetailedMetrics = profilerJvmCollectDetailedMetrics;
+    @Override
+    public int getProfileJvmStatCollectIntervalMs() {
+        return profileJvmStatCollectIntervalMs;
+    }
+
+    @Override
+    public int getProfileJvmStatBatchSendCount() {
+        return profileJvmStatBatchSendCount;
+    }
+
+    @Override
+    public boolean isProfilerJvmStatCollectDetailedMetrics() {
+        return profilerJvmStatCollectDetailedMetrics;
     }
 
     @Override
@@ -319,17 +540,35 @@ public class DefaultProfilerConfig implements ProfilerConfig {
         return agentInfoSendRetryInterval;
     }
 
+    @Override
+    public boolean getStaticResourceCleanup() {
+        return staticResourceCleanup;
+    }
+
+    public void setStaticResourceCleanup(boolean staticResourceCleanup) {
+        this.staticResourceCleanup = staticResourceCleanup;
+    }
+
 
     @Override
     public Filter<String> getProfilableClassFilter() {
         return profilableClassFilter;
     }
-    
+
+    /**
+     * @deprecated As of 1.9.0, set application type in plugins
+     */
+    @Deprecated
     @Override
     public List<String> getApplicationTypeDetectOrder() {
         return applicationTypeDetectOrder;
     }
-    
+
+    @Override
+    public List<String> getPluginLoadOrder() {
+        return pluginLoadOrder;
+    }
+
     @Override
     public List<String> getDisabledPlugins() {
         return disabledPlugins;
@@ -343,7 +582,6 @@ public class DefaultProfilerConfig implements ProfilerConfig {
     public void setApplicationServerType(String applicationServerType) {
         this.applicationServerType = applicationServerType;
     }
-    
 
     @Override
     public int getCallStackMaxDepth() {
@@ -353,7 +591,7 @@ public class DefaultProfilerConfig implements ProfilerConfig {
     public void setCallStackMaxDepth(int callStackMaxDepth) {
         this.callStackMaxDepth = callStackMaxDepth;
     }
-    
+
     @Override
     public boolean isPropagateInterceptorException() {
         return propagateInterceptorException;
@@ -364,6 +602,40 @@ public class DefaultProfilerConfig implements ProfilerConfig {
         return profileInstrumentEngine;
     }
 
+    @Override
+    public boolean isSupportLambdaExpressions() {
+        return supportLambdaExpressions;
+    }
+
+    @Override
+    public boolean isInstrumentMatcherEnable() {
+        return instrumentMatcherEnable;
+    }
+
+    @Override
+    public InstrumentMatcherCacheConfig getInstrumentMatcherCacheConfig() {
+        return instrumentMatcherCacheConfig;
+    }
+
+    @Override
+    public boolean isProxyHttpHeaderEnable() {
+        return proxyHttpHeaderEnable;
+    }
+
+    @Override
+    public HttpStatusCodeErrors getHttpStatusCodeErrors() {
+        return httpStatusCodeErrors;
+    }
+
+    @Override
+    public String getInjectionModuleFactoryClazzName() {
+        return injectionModuleFactoryClazzName;
+    }
+
+    @Override
+    public String getApplicationNamespace() {
+        return applicationNamespace;
+    }
 
     // for test
     void readPropertyValues() {
@@ -372,40 +644,36 @@ public class DefaultProfilerConfig implements ProfilerConfig {
 
         this.profileEnable = readBoolean("profiler.enable", true);
         this.profileInstrumentEngine = readString("profiler.instrument.engine", INSTRUMENT_ENGINE_ASM);
+        this.instrumentMatcherEnable = readBoolean("profiler.instrument.matcher.enable", true);
 
-        this.interceptorRegistrySize = readInt("profiler.interceptorregistry.size", 1024*8);
+        this.instrumentMatcherCacheConfig.setInterfaceCacheSize(readInt("profiler.instrument.matcher.interface.cache.size", 4));
+        this.instrumentMatcherCacheConfig.setInterfaceCacheEntrySize(readInt("profiler.instrument.matcher.interface.cache.entry.size", 16));
+        this.instrumentMatcherCacheConfig.setAnnotationCacheSize(readInt("profiler.instrument.matcher.annotation.cache.size", 4));
+        this.instrumentMatcherCacheConfig.setAnnotationCacheEntrySize(readInt("profiler.instrument.matcher.annotation.cache.entry.size", 4));
+        this.instrumentMatcherCacheConfig.setSuperCacheSize(readInt("profiler.instrument.matcher.super.cache.size", 4));
+        this.instrumentMatcherCacheConfig.setSuperCacheEntrySize(readInt("profiler.instrument.matcher.super.cache.entry.size", 4));
 
-        this.collectorSpanServerIp = readString("profiler.collector.span.ip", DEFAULT_IP, placeHolderResolver);
-        this.collectorSpanServerPort = readInt("profiler.collector.span.port", 9996);
+        this.interceptorRegistrySize = readInt("profiler.interceptorregistry.size", 1024 * 8);
 
-        this.collectorStatServerIp = readString("profiler.collector.stat.ip", DEFAULT_IP, placeHolderResolver);
-        this.collectorStatServerPort = readInt("profiler.collector.stat.port", 9995);
+        this.transportModule = readString("profiler.transport.module", "THRIFT");
+        this.thriftTransportConfig = readThriftTransportConfig(this);
+        this.grpcTransportConfig = readGrpcTransportConfig(this);
 
-        this.collectorTcpServerIp = readString("profiler.collector.tcp.ip", DEFAULT_IP, placeHolderResolver);
-        this.collectorTcpServerPort = readInt("profiler.collector.tcp.port", 9994);
-
-        this.spanDataSenderWriteQueueSize = readInt("profiler.spandatasender.write.queue.size", 1024 * 5);
-        this.spanDataSenderSocketSendBufferSize = readInt("profiler.spandatasender.socket.sendbuffersize", 1024 * 64 * 16);
-        this.spanDataSenderSocketTimeout = readInt("profiler.spandatasender.socket.timeout", 1000 * 3);
-        this.spanDataSenderChunkSize = readInt("profiler.spandatasender.chunk.size", 1024 * 16);
-        this.spanDataSenderSocketType = readString("profiler.spandatasender.socket.type", "OIO");
-
-        this.statDataSenderWriteQueueSize = readInt("profiler.statdatasender.write.queue.size", 1024 * 5);
-        this.statDataSenderSocketSendBufferSize = readInt("profiler.statdatasender.socket.sendbuffersize", 1024 * 64 * 16);
-        this.statDataSenderSocketTimeout = readInt("profiler.statdatasender.socket.timeout", 1000 * 3);
-        this.statDataSenderChunkSize = readInt("profiler.statdatasender.chunk.size", 1024 * 16);
-        this.statDataSenderSocketType = readString("profiler.statdatasender.socket.type", "OIO");
-
-        this.tcpDataSenderCommandAcceptEnable = readBoolean("profiler.tcpdatasender.command.accept.enable", false);
 
         this.traceAgentActiveThread = readBoolean("profiler.pinpoint.activethread", true);
 
-        // CallStck
+        this.traceAgentDataSource = readBoolean("profiler.pinpoint.datasource", false);
+        this.dataSourceTraceLimitSize = readInt("profiler.pinpoint.datasource.tracelimitsize", 20);
+
+        this.deadlockMonitorEnable = readBoolean("profiler.monitor.deadlock.enable", true);
+        this.deadlockMonitorInterval = readLong("profiler.monitor.deadlock.interval", 60000L);
+
+        // CallStack
         this.callStackMaxDepth = readInt("profiler.callstack.max.depth", 64);
-        if(this.callStackMaxDepth < 2) {
+        if (this.callStackMaxDepth != -1 && this.callStackMaxDepth < 2) {
             this.callStackMaxDepth = 2;
         }
-        
+
         // JDBC
         this.jdbcSqlCacheSize = readInt("profiler.jdbc.sqlcachesize", 1024);
         this.traceSqlBindValue = readBoolean("profiler.jdbc.tracesqlbindvalue", false);
@@ -420,10 +688,14 @@ public class DefaultProfilerConfig implements ProfilerConfig {
         // it may be a problem to be here.  need to modify(delete or move or .. )  this configuration.
         this.ioBufferingBufferSize = readInt("profiler.io.buffering.buffersize", 20);
 
+        //OS
+        this.profileOsName = readString("profiler.os.name", null);
+
         // JVM
-        this.profileJvmCollectInterval = readInt("profiler.jvm.collect.interval", 1000);
         this.profileJvmVendorName = readString("profiler.jvm.vendor.name", null);
-        this.profilerJvmCollectDetailedMetrics = readBoolean("profiler.jvm.collect.detailed.metrics", false);
+        this.profileJvmStatCollectIntervalMs = readInt("profiler.jvm.stat.collect.interval", DEFAULT_AGENT_STAT_COLLECTION_INTERVAL_MS);
+        this.profileJvmStatBatchSendCount = readInt("profiler.jvm.stat.batch.send.count", DEFAULT_NUM_AGENT_STAT_BATCH_SEND);
+        this.profilerJvmStatCollectDetailedMetrics = readBoolean("profiler.jvm.stat.collect.detailed.metrics", false);
 
         this.agentInfoSendRetryInterval = readLong("profiler.agentInfo.send.retry.interval", DEFAULT_AGENT_INFO_SEND_RETRY_INTERVAL);
 
@@ -432,9 +704,11 @@ public class DefaultProfilerConfig implements ProfilerConfig {
 
         // application type detector order
         this.applicationTypeDetectOrder = readList("profiler.type.detect.order");
-        
+
+        this.pluginLoadOrder = readList("profiler.plugin.load.order");
+
         this.disabledPlugins = readList("profiler.plugin.disable");
-        
+
         // TODO have to remove        
         // profile package included in order to test "call stack view".
         // this config must not be used in service environment because the size of  profiling information will get heavy.
@@ -443,12 +717,33 @@ public class DefaultProfilerConfig implements ProfilerConfig {
         if (!profilableClass.isEmpty()) {
             this.profilableClassFilter = new ProfilableClassFilter(profilableClass);
         }
-        
+
         this.propagateInterceptorException = readBoolean("profiler.interceptor.exception.propagate", false);
+        this.supportLambdaExpressions = readBoolean("profiler.lambda.expressions.support", true);
 
+        // proxy http header names
+        this.proxyHttpHeaderEnable = readBoolean("profiler.proxy.http.header.enable", true);
 
+        this.httpStatusCodeErrors = new HttpStatusCodeErrors(readList("profiler.http.status.code.errors"));
+
+        this.injectionModuleFactoryClazzName = readString("profiler.guice.module.factory", null);
+
+        this.applicationNamespace = readString("profiler.application.namespace", "");
 
         logger.info("configuration loaded successfully.");
+    }
+
+    private GrpcTransportConfig readGrpcTransportConfig(DefaultProfilerConfig profilerConfig) {
+
+        GrpcTransportConfig grpcTransportConfig = new GrpcTransportConfig();
+        grpcTransportConfig.read(profilerConfig);
+        return grpcTransportConfig;
+    }
+
+    private ThriftTransportConfig readThriftTransportConfig(DefaultProfilerConfig profilerConfig) {
+        DefaultThriftTransportConfig binaryTransportConfig = new DefaultThriftTransportConfig();
+        binaryTransportConfig.read(profilerConfig);
+        return binaryTransportConfig;
     }
 
 
@@ -457,14 +752,14 @@ public class DefaultProfilerConfig implements ProfilerConfig {
         return readString(propertyName, defaultValue, BypassResolver.RESOLVER);
     }
 
-    private String readString(String propertyName, String defaultValue, ValueResolver valueResolver) {
+    String readString(String propertyName, String defaultValue, ValueResolver valueResolver) {
         if (valueResolver == null) {
             throw new NullPointerException("valueResolver must not be null");
         }
         String value = properties.getProperty(propertyName, defaultValue);
         value = valueResolver.resolve(value, properties);
-        if (logger.isInfoEnabled()) {
-            logger.info(propertyName + "=" + value);
+        if (logger.isDebugEnabled()) {
+            logger.debug(propertyName + "=" + value);
         }
         return value;
     }
@@ -473,8 +768,8 @@ public class DefaultProfilerConfig implements ProfilerConfig {
     public int readInt(String propertyName, int defaultValue) {
         String value = properties.getProperty(propertyName);
         int result = NumberUtils.parseInteger(value, defaultValue);
-        if (logger.isInfoEnabled()) {
-            logger.info(propertyName + "=" + result);
+        if (logger.isDebugEnabled()) {
+            logger.debug(propertyName + "=" + result);
         }
         return result;
     }
@@ -492,8 +787,8 @@ public class DefaultProfilerConfig implements ProfilerConfig {
         } catch (IllegalArgumentException e) {
             result = defaultDump;
         }
-        if (logger.isInfoEnabled()) {
-            logger.info(propertyName + "=" + result);
+        if (logger.isDebugEnabled()) {
+            logger.debug(propertyName + "=" + result);
         }
         return result;
     }
@@ -502,8 +797,8 @@ public class DefaultProfilerConfig implements ProfilerConfig {
     public long readLong(String propertyName, long defaultValue) {
         String value = properties.getProperty(propertyName);
         long result = NumberUtils.parseLong(value, defaultValue);
-        if (logger.isInfoEnabled()) {
-            logger.info(propertyName + "=" + result);
+        if (logger.isDebugEnabled()) {
+            logger.debug(propertyName + "=" + result);
         }
         return result;
     }
@@ -511,19 +806,18 @@ public class DefaultProfilerConfig implements ProfilerConfig {
     @Override
     public List<String> readList(String propertyName) {
         String value = properties.getProperty(propertyName);
-        if (value == null) {
+        if (StringUtils.isEmpty(value)) {
             return Collections.emptyList();
         }
-        String[] orders = value.trim().split(",");
-        return Arrays.asList(orders);
+        return StringUtils.tokenizeToStringList(value, ",");
     }
 
     @Override
     public boolean readBoolean(String propertyName, boolean defaultValue) {
         String value = properties.getProperty(propertyName, Boolean.toString(defaultValue));
         boolean result = Boolean.parseBoolean(value);
-        if (logger.isInfoEnabled()) {
-            logger.info(propertyName + "=" + result);
+        if (logger.isDebugEnabled()) {
+            logger.debug(propertyName + "=" + result);
         }
         return result;
     }
@@ -551,83 +845,48 @@ public class DefaultProfilerConfig implements ProfilerConfig {
 
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder(1024);
-        builder.append("DefaultProfilerConfig{properties=");
-        builder.append(properties);
-        builder.append(", interceptorRegistrySize=");
-        builder.append(interceptorRegistrySize);
-        builder.append(", propertyPlaceholderHelper=");
-        builder.append(propertyPlaceholderHelper);
-        builder.append(", profileEnable=");
-        builder.append(profileEnable);
-        builder.append(", collectorSpanServerIp=");
-        builder.append(collectorSpanServerIp);
-        builder.append(", collectorSpanServerPort=");
-        builder.append(collectorSpanServerPort);
-        builder.append(", collectorStatServerIp=");
-        builder.append(collectorStatServerIp);
-        builder.append(", collectorStatServerPort=");
-        builder.append(collectorStatServerPort);
-        builder.append(", collectorTcpServerIp=");
-        builder.append(collectorTcpServerIp);
-        builder.append(", collectorTcpServerPort=");
-        builder.append(collectorTcpServerPort);
-        builder.append(", spanDataSenderWriteQueueSize=");
-        builder.append(spanDataSenderWriteQueueSize);
-        builder.append(", spanDataSenderSocketSendBufferSize=");
-        builder.append(spanDataSenderSocketSendBufferSize);
-        builder.append(", spanDataSenderSocketTimeout=");
-        builder.append(spanDataSenderSocketTimeout);
-        builder.append(", spanDataSenderChunkSize=");
-        builder.append(spanDataSenderChunkSize);
-        builder.append(", spanDataSenderSocketType=");
-        builder.append(spanDataSenderSocketType);
-        builder.append(", statDataSenderWriteQueueSize=");
-        builder.append(statDataSenderWriteQueueSize);
-        builder.append(", statDataSenderSocketSendBufferSize=");
-        builder.append(statDataSenderSocketSendBufferSize);
-        builder.append(", statDataSenderSocketTimeout=");
-        builder.append(statDataSenderSocketTimeout);
-        builder.append(", statDataSenderChunkSize=");
-        builder.append(statDataSenderChunkSize);
-        builder.append(", statDataSenderSocketType=");
-        builder.append(statDataSenderSocketType);
-        builder.append(", tcpDataSenderCommandAcceptEnable=");
-        builder.append(tcpDataSenderCommandAcceptEnable);
-        builder.append(", traceAgentActiveThread=");
-        builder.append(traceAgentActiveThread);
-        builder.append(", callStackMaxDepth=");
-        builder.append(callStackMaxDepth);
-        builder.append(", jdbcSqlCacheSize=");
-        builder.append(jdbcSqlCacheSize);
-        builder.append(", traceSqlBindValue=");
-        builder.append(traceSqlBindValue);
-        builder.append(", maxSqlBindValueSize=");
-        builder.append(maxSqlBindValueSize);
-        builder.append(", samplingEnable=");
-        builder.append(samplingEnable);
-        builder.append(", samplingRate=");
-        builder.append(samplingRate);
-        builder.append(", ioBufferingEnable=");
-        builder.append(ioBufferingEnable);
-        builder.append(", ioBufferingBufferSize=");
-        builder.append(ioBufferingBufferSize);
-        builder.append(", profileJvmCollectInterval=");
-        builder.append(profileJvmCollectInterval);
-        builder.append(", profilableClassFilter=");
-        builder.append(profilableClassFilter);
-        builder.append(", DEFAULT_AGENT_INFO_SEND_RETRY_INTERVAL=");
-        builder.append(DEFAULT_AGENT_INFO_SEND_RETRY_INTERVAL);
-        builder.append(", agentInfoSendRetryInterval=");
-        builder.append(agentInfoSendRetryInterval);
-        builder.append(", applicationServerType=");
-        builder.append(applicationServerType);
-        builder.append(", applicationTypeDetectOrder=");
-        builder.append(applicationTypeDetectOrder);
-        builder.append(", disabledPlugins=");
-        builder.append(disabledPlugins);
-        builder.append("}");
-        return builder.toString();
+        final StringBuilder sb = new StringBuilder("DefaultProfilerConfig{");
+        sb.append("properties=").append(properties);
+        sb.append(", profileEnable=").append(profileEnable);
+        sb.append(", profileInstrumentEngine='").append(profileInstrumentEngine).append('\'');
+        sb.append(", instrumentMatcherEnable=").append(instrumentMatcherEnable);
+        sb.append(", instrumentMatcherCacheConfig=").append(instrumentMatcherCacheConfig);
+        sb.append(", interceptorRegistrySize=").append(interceptorRegistrySize);
+        sb.append(", thriftTransportConfig=").append(thriftTransportConfig).append('\'');
+        sb.append(", grpcTransportConfig=").append(grpcTransportConfig).append('\'');
+        sb.append(", traceAgentActiveThread=").append(traceAgentActiveThread);
+        sb.append(", traceAgentDataSource=").append(traceAgentDataSource);
+        sb.append(", dataSourceTraceLimitSize=").append(dataSourceTraceLimitSize);
+        sb.append(", deadlockMonitorEnable=").append(deadlockMonitorEnable);
+        sb.append(", deadlockMonitorInterval=").append(deadlockMonitorInterval);
+        sb.append(", callStackMaxDepth=").append(callStackMaxDepth);
+        sb.append(", jdbcSqlCacheSize=").append(jdbcSqlCacheSize);
+        sb.append(", traceSqlBindValue=").append(traceSqlBindValue);
+        sb.append(", maxSqlBindValueSize=").append(maxSqlBindValueSize);
+        sb.append(", samplingEnable=").append(samplingEnable);
+        sb.append(", samplingRate=").append(samplingRate);
+        sb.append(", ioBufferingEnable=").append(ioBufferingEnable);
+        sb.append(", ioBufferingBufferSize=").append(ioBufferingBufferSize);
+        sb.append(", profileOsName='").append(profileOsName).append('\'');
+        sb.append(", profileJvmVendorName='").append(profileJvmVendorName).append('\'');
+        sb.append(", profileJvmStatCollectIntervalMs=").append(profileJvmStatCollectIntervalMs);
+        sb.append(", profileJvmStatBatchSendCount=").append(profileJvmStatBatchSendCount);
+        sb.append(", profilerJvmStatCollectDetailedMetrics=").append(profilerJvmStatCollectDetailedMetrics);
+        sb.append(", profilableClassFilter=").append(profilableClassFilter);
+        sb.append(", DEFAULT_AGENT_INFO_SEND_RETRY_INTERVAL=").append(DEFAULT_AGENT_INFO_SEND_RETRY_INTERVAL);
+        sb.append(", agentInfoSendRetryInterval=").append(agentInfoSendRetryInterval);
+        sb.append(", applicationServerType='").append(applicationServerType).append('\'');
+        sb.append(", applicationTypeDetectOrder=").append(applicationTypeDetectOrder);
+        sb.append(", pluginLoadOrder=").append(pluginLoadOrder);
+        sb.append(", disabledPlugins=").append(disabledPlugins);
+        sb.append(", propagateInterceptorException=").append(propagateInterceptorException);
+        sb.append(", supportLambdaExpressions=").append(supportLambdaExpressions);
+        sb.append(", proxyHttpHeaderEnable=").append(proxyHttpHeaderEnable);
+        sb.append(", httpStatusCodeErrors=").append(httpStatusCodeErrors);
+        sb.append(", injectionModuleFactoryClazzName='").append(injectionModuleFactoryClazzName).append('\'');
+        sb.append(", applicationNamespace='").append(applicationNamespace).append('\'');
+        sb.append('}');
+        return sb.toString();
     }
 
 }

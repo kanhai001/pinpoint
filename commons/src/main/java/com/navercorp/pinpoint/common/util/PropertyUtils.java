@@ -16,6 +16,8 @@
 
 package com.navercorp.pinpoint.common.util;
 
+import com.navercorp.pinpoint.common.Charsets;
+
 import java.io.*;
 import java.util.Properties;
 
@@ -23,7 +25,7 @@ import java.util.Properties;
  * @author emeroad
  */
 public final class PropertyUtils {
-    public static final String DEFAULT_ENCODING = "UTF-8";
+    public static final String DEFAULT_ENCODING = Charsets.UTF_8_NAME;
 
     private static final ClassLoaderUtils.ClassLoaderCallable CLASS_LOADER_CALLABLE = new ClassLoaderUtils.ClassLoaderCallable() {
         @Override
@@ -96,20 +98,10 @@ public final class PropertyUtils {
             reader = new InputStreamReader(in, encoding);
             properties.load(reader);
         } finally {
-            close(reader);
-            close(in);
+            IOUtils.closeQuietly(reader);
+            IOUtils.closeQuietly(in);
         }
         return properties;
-    }
-
-    private static void close(Closeable closeable) {
-        if (closeable != null) {
-            try {
-                closeable.close();
-            } catch (IOException ignore) {
-                // skip
-            }
-        }
     }
 
 }

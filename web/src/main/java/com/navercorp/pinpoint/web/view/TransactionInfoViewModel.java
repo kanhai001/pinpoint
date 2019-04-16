@@ -27,11 +27,13 @@ import com.navercorp.pinpoint.common.util.TransactionIdUtils;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.navercorp.pinpoint.common.util.DateUtils;
-import com.navercorp.pinpoint.web.applicationmap.Link;
-import com.navercorp.pinpoint.web.applicationmap.Node;
+import com.navercorp.pinpoint.web.applicationmap.link.Link;
+import com.navercorp.pinpoint.web.applicationmap.nodes.Node;
+import com.navercorp.pinpoint.web.calltree.span.TraceState;
 import com.navercorp.pinpoint.web.vo.callstacks.Record;
 import com.navercorp.pinpoint.web.vo.callstacks.RecordSet;
 import org.apache.commons.lang3.StringEscapeUtils;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * @author jaehong.kim
@@ -43,18 +45,18 @@ public class TransactionInfoViewModel {
     private Collection<Node> nodes;
     private Collection<Link> links;
     private RecordSet recordSet;
-    private String completeState;
+    private TraceState.State completeState;
     private boolean logLinkEnable;
     private String logButtonName;
     private String logPageUrl;
     private String disableButtonMessage;
 
-    public TransactionInfoViewModel(TransactionId transactionId, Collection<Node> nodes, Collection<Link> links, RecordSet recordSet, String completeState, boolean logLinkEnable, String logButtonName, String logPageUrl, String disableButtonMessage) {
+    public TransactionInfoViewModel(TransactionId transactionId, Collection<Node> nodes, Collection<Link> links, RecordSet recordSet, TraceState.State state, boolean logLinkEnable, String logButtonName, String logPageUrl, String disableButtonMessage) {
         this.transactionId = transactionId;
         this.nodes = nodes;
         this.links = links;
         this.recordSet = recordSet;
-        this.completeState = completeState;
+        this.completeState = state;
         this.logLinkEnable = logLinkEnable;
         this.logButtonName = logButtonName;
         this.logPageUrl = logPageUrl;
@@ -93,7 +95,7 @@ public class TransactionInfoViewModel {
 
     @JsonProperty("completeState")
     public String getCompleteState() {
-        return completeState;
+        return completeState.toString();
     }
 
     @JsonProperty("logLinkEnable")
@@ -113,7 +115,7 @@ public class TransactionInfoViewModel {
 
     @JsonProperty("logPageUrl")
     public String getLogPageUrl() {
-        if (logPageUrl != null && logPageUrl.length() > 0) {
+        if (StringUtils.isNotEmpty(logPageUrl)) {
             StringBuilder sb = new StringBuilder();
             sb.append("transactionId=").append(getTransactionId());
             sb.append("&time=").append(recordSet.getStartTime());

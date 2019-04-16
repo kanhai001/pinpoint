@@ -23,6 +23,7 @@ import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.client.metrics.ScanMetrics;
 import org.apache.hadoop.hbase.util.Bytes;
 
 import java.io.IOException;
@@ -68,7 +69,7 @@ public class ParallelResultScanner implements ResultScanner {
 
     private Scan[] splitScans(Scan originalScan) throws IOException {
         Scan[] scans = this.keyDistributor.getDistributedScans(originalScan);
-        for (int i = 0; i < scans.length; ++i) {
+        for (int i = 0; i < scans.length; i++) {
             Scan scan = scans[i];
             scan.setId(originalScan.getId() + "-" + i);
         }
@@ -85,15 +86,15 @@ public class ParallelResultScanner implements ResultScanner {
         } else {
             int maxIndividualScans = (splitScans.length + (numParallelThreads - 1)) / numParallelThreads;
             List<List<Scan>> scanDistributions = new ArrayList<>(numParallelThreads);
-            for (int i = 0; i < numParallelThreads; ++i) {
+            for (int i = 0; i < numParallelThreads; i++) {
                 scanDistributions.add(new ArrayList<Scan>(maxIndividualScans));
             }
-            for (int i = 0; i < splitScans.length; ++i) {
+            for (int i = 0; i < splitScans.length; i++) {
                 scanDistributions.get(i % numParallelThreads).add(splitScans[i]);
             }
             List<ScanTask> scanTasks = new ArrayList<>(numParallelThreads);
             for (List<Scan> scanDistribution : scanDistributions) {
-                Scan[] scansForSingleTask = scanDistribution.toArray(new Scan[scanDistribution.size()]);
+                Scan[] scansForSingleTask = scanDistribution.toArray(new Scan[0]);
                 scanTasks.add(new ScanTask(scanTaskConfig, scansForSingleTask));
             }
             return scanTasks;
@@ -121,7 +122,7 @@ public class ParallelResultScanner implements ResultScanner {
     private Result nextInternal() throws IOException {
         Result result = null;
         int indexOfResultToUse = -1;
-        for (int i = 0; i < this.scanTasks.size(); ++i) {
+        for (int i = 0; i < this.scanTasks.size(); i++) {
             ScanTask scanTask = this.scanTasks.get(i);
             // fail fast in case of errors
             checkTask(scanTask);
@@ -168,7 +169,7 @@ public class ParallelResultScanner implements ResultScanner {
                 break;
             }
         }
-        return resultSets.toArray(new Result[resultSets.size()]);
+        return resultSets.toArray(new Result[0]);
     }
 
     @Override
@@ -176,6 +177,14 @@ public class ParallelResultScanner implements ResultScanner {
         for (ScanTask scanTask : this.scanTasks) {
             scanTask.close();
         }
+    }
+
+    public boolean renewLease() {
+        return false;
+    }
+
+    public ScanMetrics getScanMetrics() {
+        return null;
     }
 
     @Override

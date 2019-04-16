@@ -1,3 +1,19 @@
+/*
+ * Copyright 2018 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.navercorp.pinpoint.common.server.bo;
 
 import com.navercorp.pinpoint.common.util.TransactionIdUtils;
@@ -72,7 +88,7 @@ public class RandomTSpan {
 
     public List<TAnnotation> randomTAnnotationList() {
         int annotationSize = RandomUtils.nextInt(0, 3);
-        List<TAnnotation> result = new ArrayList<>();
+        List<TAnnotation> result = new ArrayList<TAnnotation>();
         for (int i = 0; i < annotationSize; i++) {
             result.add(randomTAnnotation(i));
         }
@@ -96,7 +112,7 @@ public class RandomTSpan {
         tSpanEvent.setSequence(sequence);
         tSpanEvent.setStartElapsed(RandomUtils.nextInt(0, 1000));
         tSpanEvent.setEndElapsed(RandomUtils.nextInt(0, 1000));
-        tSpanEvent.setRpc(RandomStringUtils.random(10));
+//        tSpanEvent.setRpc(RandomStringUtils.random(10));
 //         Database (2000 ~ 2899)
         tSpanEvent.setServiceType((short) RandomUtils.nextInt(2000, 2889));
         tSpanEvent.setEndPoint(RandomStringUtils.random(10));
@@ -141,7 +157,6 @@ public class RandomTSpan {
         tSpanChunk.setTransactionId(TransactionIdUtils.formatByteBuffer("agent", System.currentTimeMillis(), RandomUtils.nextLong(0, Long.MAX_VALUE)));
         tSpanChunk.setSpanId(random.nextLong());
 
-        tSpanChunk.setServiceType(randomServerServiceType());
         tSpanChunk.setEndPoint(RandomStringUtils.random(20));
 
 //        tSpanChunk.setSpanEventList()

@@ -18,29 +18,35 @@ package com.navercorp.pinpoint.bootstrap.resolver;
 
 import com.navercorp.pinpoint.bootstrap.resolver.condition.ClassResourceCondition;
 import com.navercorp.pinpoint.bootstrap.resolver.condition.MainClassCondition;
-import com.navercorp.pinpoint.bootstrap.resolver.condition.PropertyCondition;
+import com.navercorp.pinpoint.bootstrap.resolver.condition.SystemPropertyCondition;
+import com.navercorp.pinpoint.common.util.CollectionUtils;
+import com.navercorp.pinpoint.common.util.StringUtils;
 
 import java.util.List;
 
 /**
  * 
  * @author HyunGil Jeong
+ *
+ * @deprecated As of 1.9.0, use {@link MainClassCondition}, {@link SystemPropertyCondition},
+ *             {@link ClassResourceCondition} directly.
  */
+@Deprecated
 public class ConditionProvider {
     
     public static final ConditionProvider DEFAULT_CONDITION_PROVIDER = new ConditionProvider();
     
     private final MainClassCondition mainClassCondition;
     
-    private final PropertyCondition systemPropertyCondition;
+    private final SystemPropertyCondition systemPropertyCondition;
     
     private final ClassResourceCondition classResourceCondition;
     
     private ConditionProvider() {
-        this(new MainClassCondition(), new PropertyCondition(), new ClassResourceCondition());
+        this(MainClassCondition.INSTANCE, SystemPropertyCondition.INSTANCE, ClassResourceCondition.INSTANCE);
     }
     
-    ConditionProvider(MainClassCondition mainClassCondition, PropertyCondition systemPropertyCondition, ClassResourceCondition classResourceCondition) {
+    ConditionProvider(MainClassCondition mainClassCondition, SystemPropertyCondition systemPropertyCondition, ClassResourceCondition classResourceCondition) {
         this.mainClassCondition = mainClassCondition;
         this.systemPropertyCondition = systemPropertyCondition;
         this.classResourceCondition = classResourceCondition;
@@ -84,7 +90,7 @@ public class ConditionProvider {
      * @see MainClassCondition#check(String)
      */
     public boolean checkMainClass(List<String> candidates) {
-        if (candidates == null || candidates.isEmpty()) {
+        if (CollectionUtils.isEmpty(candidates)) {
             return false;
         }
         for (String candidate : candidates) {
@@ -101,7 +107,7 @@ public class ConditionProvider {
      * @return the system property value, or an empty string if the key is null or empty 
      */
     public String getSystemPropertyValue(String systemPropertyKey) {
-        if (systemPropertyKey == null || systemPropertyKey.isEmpty()) {
+        if (StringUtils.isEmpty(systemPropertyKey)) {
             return "";
         }
         return this.systemPropertyCondition.getValue().getProperty(systemPropertyKey);

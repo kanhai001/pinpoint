@@ -21,13 +21,16 @@ public class SpanChunkBo implements BasicSpan {
     private long spanId;
     private String endPoint;
 
+    @Deprecated
     private short serviceType;
     private Short applicationServiceType;
 
-    private List<SpanEventBo> spanEventBoList = new ArrayList<>();
+    private List<SpanEventBo> spanEventBoList = new ArrayList<SpanEventBo>();
 
     private long collectorAcceptTime;
 
+    private LocalAsyncIdBo localAsyncId;
+    private long keyTime;
 
 
     public SpanChunkBo() {
@@ -82,6 +85,14 @@ public class SpanChunkBo implements BasicSpan {
         this.spanId = spanId;
     }
 
+    public long getKeyTime() {
+        return this.keyTime;
+    }
+
+    public void setKeyTime(long keyTime) {
+        this.keyTime = keyTime;
+    }
+
     public String getEndPoint() {
         return endPoint;
     }
@@ -102,10 +113,12 @@ public class SpanChunkBo implements BasicSpan {
         this.applicationServiceType  = applicationServiceType;
     }
 
+    @Deprecated
     public short getServiceType() {
         return serviceType;
     }
 
+    @Deprecated
     public void setServiceType(short serviceType) {
         this.serviceType = serviceType;
     }
@@ -133,6 +146,18 @@ public class SpanChunkBo implements BasicSpan {
         this.spanEventBoList.addAll(spanEventBoList);
     }
 
+    public boolean isAsyncSpanChunk() {
+        return localAsyncId != null;
+    }
+
+    public LocalAsyncIdBo getLocalAsyncId() {
+        return localAsyncId;
+    }
+
+    public void setLocalAsyncId(LocalAsyncIdBo localAsyncId) {
+        this.localAsyncId = localAsyncId;
+    }
+
     @Override
     public String toString() {
         return "SpanChunkBo{" +
@@ -147,6 +172,8 @@ public class SpanChunkBo implements BasicSpan {
                 ", applicationServiceType=" + applicationServiceType +
                 ", spanEventBoList=" + spanEventBoList +
                 ", collectorAcceptTime=" + collectorAcceptTime +
+                ", localAsyncId=" + localAsyncId +
+                ", keyTIme=" + keyTime +
                 '}';
     }
 }

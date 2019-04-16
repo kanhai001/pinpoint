@@ -1,11 +1,14 @@
 package com.navercorp.pinpoint.common.server.bo;
 
+import com.navercorp.pinpoint.common.server.util.IntegerUtils;
+import com.navercorp.pinpoint.common.server.util.ShortUtils;
+
 import java.util.Comparator;
 
 /**
  * @author Woonduk Kang(emeroad)
  */
-public class SpanEventComparator implements Comparator<SpanEventBo> {
+public final class SpanEventComparator implements Comparator<SpanEventBo> {
 
     public static final SpanEventComparator INSTANCE = new SpanEventComparator();
 

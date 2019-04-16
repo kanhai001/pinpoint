@@ -16,7 +16,6 @@
 
 package com.navercorp.pinpoint.web.mapper;
 
-import com.google.common.annotations.Beta;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
@@ -25,6 +24,7 @@ import com.navercorp.pinpoint.common.buffer.OffsetFixedBuffer;
 import com.navercorp.pinpoint.common.hbase.HBaseTables;
 import com.navercorp.pinpoint.common.hbase.RowMapper;
 import com.navercorp.pinpoint.common.server.bo.BasicSpan;
+import com.navercorp.pinpoint.common.server.bo.LocalAsyncIdBo;
 import com.navercorp.pinpoint.common.server.bo.SpanBo;
 import com.navercorp.pinpoint.common.server.bo.SpanChunkBo;
 import com.navercorp.pinpoint.common.server.bo.SpanEventBo;
@@ -52,7 +52,6 @@ import java.util.List;
 /**
  * @author emeroad
  */
-@Beta
 @Component
 public class SpanMapperV2 implements RowMapper<List<SpanBo>> {
 
@@ -156,7 +155,7 @@ public class SpanMapperV2 implements RowMapper<List<SpanBo>> {
     private void sortSpanEvent(List<SpanBo> spanBoList) {
         for (SpanBo spanBo : spanBoList) {
             List<SpanEventBo> spanEventBoList = spanBo.getSpanEventBoList();
-            Collections.sort(spanEventBoList, SpanEventComparator.INSTANCE);
+            spanEventBoList.sort(SpanEventComparator.INSTANCE);
         }
     }
 
@@ -173,8 +172,8 @@ public class SpanMapperV2 implements RowMapper<List<SpanBo>> {
 
                 int agentLevelCollisionCount = 0;
                 for (SpanBo spanBo : matchedSpanBoList) {
-                    if (StringUtils.equals(spanBo.getAgentId(), spanChunkBo.getAgentId())) {
-                        spanBo.addSpanEventBoList(spanChunkBo.getSpanEventBoList());
+                    if (isChildSpanChunk(spanBo, spanChunkBo)) {
+                        spanBo.addSpanChunkBo(spanChunkBo);
                         agentLevelCollisionCount++;
                     }
                 }
@@ -189,6 +188,22 @@ public class SpanMapperV2 implements RowMapper<List<SpanBo>> {
             }
         }
         return Lists.newArrayList(spanMap.values());
+    }
+
+    private boolean isChildSpanChunk(SpanBo spanBo, SpanChunkBo spanChunkBo) {
+        if (spanBo.getSpanId() != spanChunkBo.getSpanId()) {
+            return false;
+        }
+        if (spanBo.getAgentStartTime() != spanChunkBo.getAgentStartTime()) {
+            return false;
+        }
+        if (!StringUtils.equals(spanBo.getAgentId(), spanChunkBo.getAgentId())) {
+            return false;
+        }
+        if (!StringUtils.equals(spanBo.getApplicationId(), spanChunkBo.getApplicationId())) {
+            return false;
+        }
+        return true;
     }
 
     private AgentKey newAgentKey(BasicSpan basicSpan) {

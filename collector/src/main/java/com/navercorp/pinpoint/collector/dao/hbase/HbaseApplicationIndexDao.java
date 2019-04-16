@@ -20,8 +20,10 @@ import static com.navercorp.pinpoint.common.hbase.HBaseTables.*;
 
 import com.navercorp.pinpoint.collector.dao.ApplicationIndexDao;
 import com.navercorp.pinpoint.common.hbase.HbaseOperations2;
-import com.navercorp.pinpoint.thrift.dto.TAgentInfo;
+import com.navercorp.pinpoint.common.hbase.TableNameProvider;
+import com.navercorp.pinpoint.common.server.bo.AgentInfoBo;
 
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.slf4j.Logger;
@@ -43,19 +45,22 @@ public class HbaseApplicationIndexDao implements ApplicationIndexDao {
     @Autowired
     private HbaseOperations2 hbaseTemplate;
 
+    @Autowired
+    private TableNameProvider tableNameProvider;
+
     @Override
-    public void insert(final TAgentInfo agentInfo) {
+    public void insert(final AgentInfoBo agentInfo) {
         if (agentInfo == null) {
             throw new NullPointerException("agentInfo must not be null");
         }
 
-        Put put = new Put(Bytes.toBytes(agentInfo.getApplicationName()));
-        byte[] qualifier = Bytes.toBytes(agentInfo.getAgentId());
-        byte[] value = Bytes.toBytes(agentInfo.getServiceType());
-        
+        final Put put = new Put(Bytes.toBytes(agentInfo.getApplicationName()));
+        final byte[] qualifier = Bytes.toBytes(agentInfo.getAgentId());
+        final byte[] value = Bytes.toBytes(agentInfo.getServiceTypeCode());
         put.addColumn(APPLICATION_INDEX_CF_AGENTS, qualifier, value);
-        
-        hbaseTemplate.put(APPLICATION_INDEX, put);
+
+        final TableName applicationIndexTableName = tableNameProvider.getTableName(APPLICATION_INDEX_STR);
+        hbaseTemplate.put(applicationIndexTableName, put);
 
         logger.debug("Insert agentInfo. {}", agentInfo);
     }

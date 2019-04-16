@@ -16,6 +16,9 @@
 
 package com.navercorp.pinpoint.bootstrap.config;
 
+import com.navercorp.pinpoint.common.annotations.InterfaceAudience;
+import com.navercorp.pinpoint.common.annotations.VisibleForTesting;
+
 import java.util.List;
 import java.util.Map;
 
@@ -23,43 +26,194 @@ import java.util.Map;
  * @author Woonduk Kang(emeroad)
  */
 public interface ProfilerConfig {
+
     int getInterceptorRegistrySize();
 
+    String getTransportModule();
+
+    ThriftTransportConfig getThriftTransportConfig();
+
+    GrpcTransportConfig getGrpcTransportConfig();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     String getCollectorSpanServerIp();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     int getCollectorSpanServerPort();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     String getCollectorStatServerIp();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     int getCollectorStatServerPort();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     String getCollectorTcpServerIp();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     int getCollectorTcpServerPort();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     int getStatDataSenderWriteQueueSize();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     int getStatDataSenderSocketSendBufferSize();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     int getStatDataSenderSocketTimeout();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     String getStatDataSenderSocketType();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    String getStatDataSenderTransportType();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     int getSpanDataSenderWriteQueueSize();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     int getSpanDataSenderSocketSendBufferSize();
 
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
     boolean isTcpDataSenderCommandAcceptEnable();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    boolean isTcpDataSenderCommandActiveThreadEnable();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    boolean isTcpDataSenderCommandActiveThreadCountEnable();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    boolean isTcpDataSenderCommandActiveThreadDumpEnable();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    boolean isTcpDataSenderCommandActiveThreadLightDumpEnable();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    long getTcpDataSenderPinpointClientWriteTimeout();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    long getTcpDataSenderPinpointClientRequestTimeout();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    long getTcpDataSenderPinpointClientReconnectInterval();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    long getTcpDataSenderPinpointClientPingInterval();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    long getTcpDataSenderPinpointClientHandshakeInterval();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    int getSpanDataSenderSocketTimeout();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    String getSpanDataSenderSocketType();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    String getSpanDataSenderTransportType();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    int getSpanDataSenderChunkSize();
+
+    /**
+     * @deprecated Use {@link #getThriftTransportConfig()} (int)} instead.
+     */
+    @Deprecated
+    int getStatDataSenderChunkSize();
+
 
     boolean isTraceAgentActiveThread();
 
-    int getSpanDataSenderSocketTimeout();
+    boolean isTraceAgentDataSource();
 
-    String getSpanDataSenderSocketType();
+    int getDataSourceTraceLimitSize();
 
-    int getSpanDataSenderChunkSize();
+    boolean isDeadlockMonitorEnable();
 
-    int getStatDataSenderChunkSize();
+    long getDeadlockMonitorInterval();
+
 
     boolean isProfileEnable();
 
@@ -77,18 +231,28 @@ public interface ProfilerConfig {
 
     int getIoBufferingBufferSize();
 
-    int getProfileJvmCollectInterval();
-
     String getProfilerJvmVendorName();
 
-    boolean isProfilerJvmCollectDetailedMetrics();
+    String getProfilerOSName();
+
+    int getProfileJvmStatCollectIntervalMs();
+
+    int getProfileJvmStatBatchSendCount();
+
+    boolean isProfilerJvmStatCollectDetailedMetrics();
 
     long getAgentInfoSendRetryInterval();
+
+    @InterfaceAudience.Private
+    @VisibleForTesting
+    boolean getStaticResourceCleanup();
 
 
     Filter<String> getProfilableClassFilter();
 
     List<String> getApplicationTypeDetectOrder();
+
+    List<String> getPluginLoadOrder();
 
     List<String> getDisabledPlugins();
 
@@ -99,6 +263,20 @@ public interface ProfilerConfig {
     boolean isPropagateInterceptorException();
 
     String getProfileInstrumentEngine();
+
+    boolean isSupportLambdaExpressions();
+
+    boolean isInstrumentMatcherEnable();
+
+    InstrumentMatcherCacheConfig getInstrumentMatcherCacheConfig();
+
+    boolean isProxyHttpHeaderEnable();
+
+    HttpStatusCodeErrors getHttpStatusCodeErrors();
+
+    String getInjectionModuleFactoryClazzName();
+
+    String getApplicationNamespace();
 
     String readString(String propertyName, String defaultValue);
 

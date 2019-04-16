@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2016 NAVER Corp.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,13 +20,19 @@ package com.navercorp.pinpoint.bootstrap.interceptor;
 public class ExceptionHandleApiIdAwareAroundInterceptor implements ApiIdAwareAroundInterceptor {
 
     private final ApiIdAwareAroundInterceptor delegate;
+    private final ExceptionHandler exceptionHandler;
 
-    public ExceptionHandleApiIdAwareAroundInterceptor(ApiIdAwareAroundInterceptor delegate) {
+    public ExceptionHandleApiIdAwareAroundInterceptor(ApiIdAwareAroundInterceptor delegate, ExceptionHandler exceptionHandler) {
         if (delegate == null) {
             throw new NullPointerException("delegate must not be null");
         }
 
+        if (exceptionHandler == null) {
+            throw new NullPointerException("exceptionHandler must not be null");
+        }
+
         this.delegate = delegate;
+        this.exceptionHandler = exceptionHandler;
     }
 
     @Override
@@ -34,7 +40,7 @@ public class ExceptionHandleApiIdAwareAroundInterceptor implements ApiIdAwareAro
         try {
             this.delegate.before(target, apiId, args);
         } catch (Throwable t) {
-            InterceptorInvokerHelper.handleException(t);
+            exceptionHandler.handleException(t);
         }
     }
 
@@ -43,7 +49,7 @@ public class ExceptionHandleApiIdAwareAroundInterceptor implements ApiIdAwareAro
         try {
             this.delegate.after(target, apiId, args, result, throwable);
         } catch (Throwable t) {
-            InterceptorInvokerHelper.handleException(t);
+            exceptionHandler.handleException(t);
         }
     }
 }

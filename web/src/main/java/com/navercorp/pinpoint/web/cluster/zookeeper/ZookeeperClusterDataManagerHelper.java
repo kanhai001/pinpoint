@@ -16,8 +16,10 @@
 
 package com.navercorp.pinpoint.web.cluster.zookeeper;
 
-import com.navercorp.pinpoint.web.cluster.zookeeper.ZookeeperClusterDataManager.PushWebClusterJob;
-import org.apache.zookeeper.CreateMode;
+import com.navercorp.pinpoint.common.server.cluster.zookeeper.ZookeeperClient;
+import com.navercorp.pinpoint.common.util.CollectionUtils;
+import com.navercorp.pinpoint.common.util.MapUtils;
+import org.apache.curator.utils.ZKPaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,27 +33,25 @@ import java.util.Map;
  */
 public class ZookeeperClusterDataManagerHelper {
 
-    private static final String PATH_SEPARATOR = "/";
-
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     public ZookeeperClusterDataManagerHelper() {
     }
 
-    Map<String, byte[]> getCollectorData(ZookeeperClient client, String path) {
+    Map<String, byte[]> getCollectorData(ZookeeperClient client, String parentPath) {
         try {
-            List<String> collectorList = client.getChildren(path, true);
-            if (collectorList == Collections.EMPTY_LIST) {
+            List<String> collectorList = client.getChildNodeList(parentPath, true);
+            if (CollectionUtils.isEmpty(collectorList)) {
                 return Collections.emptyMap();
             }
 
             Map<String, byte[]> map = new HashMap<>();
 
             for (String collector : collectorList) {
-                String node = bindingPathAndZNode(path, collector);
+                String fullPath = ZKPaths.makePath(parentPath, collector);
 
-                byte[] data = client.getData(node, true);
-                map.put(node, data);
+                byte[] data = client.getData(fullPath, true);
+                map.put(fullPath, data);
             }
 
             return map;
@@ -60,18 +60,6 @@ public class ZookeeperClusterDataManagerHelper {
         }
 
         return Collections.emptyMap();
-    }
-
-    String bindingPathAndZNode(String path, String zNodeName) {
-        StringBuilder fullPath = new StringBuilder();
-
-        fullPath.append(path);
-        if (!path.endsWith(PATH_SEPARATOR)) {
-            fullPath.append(PATH_SEPARATOR);
-        }
-        fullPath.append(zNodeName);
-
-        return fullPath.toString();
     }
 
     String extractCollectorClusterId(String path, String collectorClusterPath) {
@@ -87,22 +75,19 @@ public class ZookeeperClusterDataManagerHelper {
         return null;
     }
 
-    boolean pushWebClusterResource(ZookeeperClient client, PushWebClusterJob job) {
+    public boolean pushZnode(ZookeeperClient client, PushZnodeJob job) {
         if (job == null) {
             return false;
         }
-        
+
         String zNodePath = job.getZNodePath();
         byte[] contents = job.getContents();
 
         try {
-            if (!client.exists(zNodePath)) {
-                client.createPath(zNodePath);
-            }
+            client.createPath(zNodePath);
 
-            // ip:port zNode naming scheme
-            String nodeName = client.createNode(zNodePath, contents, CreateMode.EPHEMERAL);
-            logger.info("Register Web Cluster Zookeeper UniqPath = {}.", zNodePath);
+            String nodeName = client.createOrSetNode(zNodePath, contents);
+            logger.info("Register Zookeeper node UniqPath = {}.", zNodePath);
             return true;
         } catch (Exception e) {
             logger.warn(e.getMessage(), e);
@@ -112,7 +97,7 @@ public class ZookeeperClusterDataManagerHelper {
 
     Map<String, byte[]> syncPullCollectorCluster(ZookeeperClient client, String path) {
         Map<String, byte[]> map = getCollectorData(client, path);
-        if (map == Collections.EMPTY_MAP) {
+        if (MapUtils.isEmpty(map)) {
             return Collections.emptyMap();
         }
 

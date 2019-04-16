@@ -17,6 +17,8 @@
 package com.navercorp.pinpoint.common.util;
 
 
+import com.navercorp.pinpoint.common.Charsets;
+
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.Charset;
 
@@ -33,8 +35,9 @@ public final class BytesUtils {
     public static final int VINT_MAX_SIZE = 5;
 
     private static final byte[] EMPTY_BYTES = new byte[0];
-    private static final String UTF8 = "UTF-8";
-    private static final Charset UTF8_CHARSET = Charset.forName(UTF8);
+
+    private static final Charset UTF8_CHARSET = Charsets.UTF_8;
+    private static final String UTF8 = Charsets.UTF_8_NAME;
 
     private BytesUtils() {
     }
@@ -363,7 +366,7 @@ public final class BytesUtils {
     public static byte[] intToVar32(int value) {
         final int bufferSize = BytesUtils.computeVar32Size(value);
         final byte[] buffer = new byte[bufferSize];
-        writeVar64(value, buffer, 0);
+        writeVar32(value, buffer, 0);
         return buffer;
     }
 
@@ -538,9 +541,9 @@ public final class BytesUtils {
             return null;
         }
         try {
-            return value.getBytes(UTF8);
+            return value.getBytes(Charsets.UTF_8_NAME);
         } catch (UnsupportedEncodingException e) {
-            return value.getBytes(UTF8_CHARSET);
+            return value.getBytes(Charsets.UTF_8);
         }
     }
 
@@ -654,12 +657,18 @@ public final class BytesUtils {
         if (string == null) {
             return null;
         }
+        if (string.isEmpty()) {
+            return "";
+        }
         final int length = string.length();
         int index = length;
 
         // need to use Character.isWhitespace()? may not needed.
         while (string.charAt(index - 1) <= ' ') {
             index--;
+            if (index <= 0) {
+                break;
+            }
         }
         if (index == length) {
             return string;
